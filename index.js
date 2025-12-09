@@ -53,7 +53,32 @@ const client = new MongoClient(process.env.MONGODB_URI, {
 })
 async function run() {
   try {
-   
+    // DB COLLECTION
+    const db = client.db("lessonsVersDb");
+    const userCollection = db.collection("users");
+
+    app.post('/users', async (req, res) => {
+      const user = req.body;
+      user.isPremium = false;
+      user.createdAt = new Date().toISOString;
+      user.lastLogin = new Date().toISOString;
+      user.role = "customer";
+      user.isFeatured = false;
+      const query = {
+        email: user.email
+      }
+      const existingUser = await userCollection.findOne(query);
+      if (existingUser) {
+        const result = await userCollection.updateOne(query, {
+          $set: {
+            last_loggedIn: new Date().toISOString(),
+          },
+        })
+        return res.send(result)
+      }
+      const result = await userCollection.insertOne(user);
+      res.send(result);
+    })
 
     // Send a ping to confirm a successful connection
     await client.db('admin').command({ ping: 1 })
