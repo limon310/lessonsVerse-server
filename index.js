@@ -73,7 +73,7 @@ async function run() {
       if (existingUser) {
         const result = await userCollection.updateOne(query, {
           $set: {
-            last_loggedIn: new Date().toISOString(),
+            last_loggedIn: new Date().toLocaleString(),
           },
         })
         return res.send(result)
@@ -84,7 +84,7 @@ async function run() {
 
     // LESSONS RELETADE APIS HERE
     // create lessons
-    app.post('/lessons', async(req, res) =>{
+    app.post('/lessons', async (req, res) => {
       const lessonsData = req.body;
       // console.log("lessons data in back end", lessonsData);
       lessonsData.createdAt = new Date().toLocaleString();
@@ -93,6 +93,21 @@ async function run() {
       res.send(result);
 
     })
+
+    // get lessons data
+    app.get('/public-lessons', async (req, res) => {
+      try {
+        const lessons = lessonsCollection.find(
+          { privacy: "Public" }
+        );
+        const result = await lessons.toArray();
+
+        res.send(result);
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
 
     // Send a ping to confirm a successful connection
     await client.db('admin').command({ ping: 1 })
