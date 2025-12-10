@@ -1,7 +1,8 @@
-require('dotenv').config()
+require('dotenv').config();
 const express = require('express')
 const cors = require('cors')
 const { MongoClient, ServerApiVersion } = require('mongodb')
+const stripe = require('stripe')(process.env.STRIPE_SECRET);
 const admin = require('firebase-admin')
 const port = process.env.PORT || 3000
 const decoded = Buffer.from(process.env.FB_SERVICE_KEY, 'base64').toString(
@@ -57,6 +58,7 @@ async function run() {
     const db = client.db("lessonsVersDb");
     const userCollection = db.collection("users");
     const lessonsCollection = db.collection("lessons");
+    // const myLessonsCollection = db.collection("myLessons");
 
     // save user in db
     app.post('/users', async (req, res) => {
@@ -83,9 +85,9 @@ async function run() {
     })
 
     // get user by email
-    app.get('/users/:email', async(req,res) =>{
+    app.get('/users/:email', async (req, res) => {
       const email = req.params.email;
-      const query = {email};
+      const query = { email };
       const result = await userCollection.findOne(query);
       res.send(result);
     })
@@ -116,6 +118,87 @@ async function run() {
       }
     });
 
+    // get my lessons
+    // app.get('/my-lessons', async (req, res) => {
+    //   const email = req.query.email;
+    //   const query = {};
+
+    //   if (email) {
+    //     query.email = email;
+    //   }
+
+    //   const cursor = lessonsCollection.find(query);
+    //   const result = await cursor.toArray();
+    //   res.send(result);
+    // });
+
+    // PAYMENT RELATED APIS HERE
+    app.post('/create-checkout-session', async (req, res) => {
+      const paymentInfo = req.body;
+      const price = paymentInfo?.price;
+      const session = await stripe.checkout.sessions.create({
+        line_items: [
+          {
+            price_data: {
+              currency: "usd",
+              unit_amount: price * 100,
+              product_data: {
+                name: paymentInfo.package_name
+              }
+            },
+            quantity: 1
+          },
+        ],
+        customer_email: paymentInfo?.customer_email,
+        mode: 'payment',
+        metadata: {
+          customer_email: paymentInfo?.customer_email,
+          plan: paymentInfo?.plan,
+          costomer_id: paymentInfo?.costomer_id
+        },
+        success_url: `${process.env.CLIENT_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.CLIENT_DOMAIN}/upgrade-premium`,
+      })
+      res.send({ url: session.url })
+    })
+
+    app.post('/create-checkout-session', async (req, res) => {
+      try {
+        const paymentInfo = req.body;
+        const price = paymentInfo?.price;
+        const session = await stripe.checkout.sessions.create({
+          line_items: [
+            {
+              price_data: {
+                currency: "usd",
+                unit_amount: Number(price) / 100,
+                product_data: {
+                  name: paymentInfo.package_name || "Premium Membership"
+                }
+              },
+              quantity: 1
+            }
+          ],
+          mode: 'payment',
+          customer_email: paymentInfo?.customer_email,
+          metadata: {
+            customer_email: paymentInfo?.customer_email,
+            plan: paymentInfo?.plan,
+            customer_id: paymentInfo?.customer_id
+          },
+          success_url: `${process.env.CLIENT_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${process.env.CLIENT_DOMAIN}/upgrade-premium`,
+        });
+
+        res.send({ url: session.url });
+
+      } catch (error) {
+        console.error("Stripe session error:", error.message);
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // success-payment
 
     // Send a ping to confirm a successful connection
     await client.db('admin').command({ ping: 1 })
