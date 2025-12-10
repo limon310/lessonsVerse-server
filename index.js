@@ -56,12 +56,14 @@ async function run() {
     // DB COLLECTION
     const db = client.db("lessonsVersDb");
     const userCollection = db.collection("users");
+    const lessonsCollection = db.collection("lessons");
 
+    // save user in db
     app.post('/users', async (req, res) => {
       const user = req.body;
       user.isPremium = false;
-      user.createdAt = new Date().toISOString;
-      user.lastLogin = new Date().toISOString;
+      user.createdAt = new Date().toISOString();
+      user.lastLogin = new Date().toISOString();
       user.role = "customer";
       user.isFeatured = false;
       const query = {
@@ -78,6 +80,18 @@ async function run() {
       }
       const result = await userCollection.insertOne(user);
       res.send(result);
+    })
+
+    // LESSONS RELETADE APIS HERE
+    // create lessons
+    app.post('/lessons', async(req, res) =>{
+      const lessonsData = req.body;
+      // console.log("lessons data in back end", lessonsData);
+      lessonsData.createdAt = new Date().toLocaleString();
+      lessonsData.lastUpdated = new Date().toLocaleString();
+      const result = await lessonsCollection.insertOne(lessonsData);
+      res.send(result);
+
     })
 
     // Send a ping to confirm a successful connection
