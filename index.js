@@ -58,6 +58,7 @@ async function run() {
     const db = client.db("lessonsVersDb");
     const userCollection = db.collection("users");
     const lessonsCollection = db.collection("lessons");
+    const paymentCollection = db.collection("payment");
     // const myLessonsCollection = db.collection("myLessons");
 
     // save user in db
@@ -134,35 +135,6 @@ async function run() {
 
     // PAYMENT RELATED APIS HERE
     app.post('/create-checkout-session', async (req, res) => {
-      const paymentInfo = req.body;
-      const price = paymentInfo?.price;
-      const session = await stripe.checkout.sessions.create({
-        line_items: [
-          {
-            price_data: {
-              currency: "usd",
-              unit_amount: price * 100,
-              product_data: {
-                name: paymentInfo.package_name
-              }
-            },
-            quantity: 1
-          },
-        ],
-        customer_email: paymentInfo?.customer_email,
-        mode: 'payment',
-        metadata: {
-          customer_email: paymentInfo?.customer_email,
-          plan: paymentInfo?.plan,
-          costomer_id: paymentInfo?.costomer_id
-        },
-        success_url: `${process.env.CLIENT_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${process.env.CLIENT_DOMAIN}/upgrade-premium`,
-      })
-      res.send({ url: session.url })
-    })
-
-    app.post('/create-checkout-session', async (req, res) => {
       try {
         const paymentInfo = req.body;
         const price = paymentInfo?.price;
@@ -171,7 +143,7 @@ async function run() {
             {
               price_data: {
                 currency: "usd",
-                unit_amount: Number(price) / 100,
+                unit_amount: Number(price) * 100,
                 product_data: {
                   name: paymentInfo.package_name || "Premium Membership"
                 }
@@ -199,6 +171,65 @@ async function run() {
     });
 
     // success-payment
+    app.patch('/payment-success', async (req, res) => {
+      try {
+        const sessionId = req.query.session_id;
+
+        // Retrieve session from Stripe
+        const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+        // Check payment status
+        if (session.payment_status !== "paid") {
+          return res.status(400).json({ message: "Payment not completed" });
+        }
+
+        // Extract metadata
+        // const customerId = session.metadata.customer_id;
+        const customerEmail = session.metadata.customer_email;
+        const plan = session.metadata.plan;
+
+        // 1. Save payment history 
+        const paymentDoc = {
+          transactionId: session.payment_intent,
+          amount: session.amount_total / 100,
+          email: customerEmail,
+          plan,
+          createdAt: new Date()
+        };
+
+        // Check if this transaction already saved
+        const existingOrder = await paymentCollection.findOne({
+          transactionId: session.payment_intent
+        });
+
+        if (!existingOrder) {
+          await paymentCollection.insertOne(paymentDoc);
+        }
+
+        // 2. Update userCollection: Set isPremium: true
+        const updateResult = await userCollection.updateOne(
+          { email: customerEmail },
+          {
+            $set: {
+              isPremium: true,
+              premiumActivatedAt: new Date(),
+              premiumPlan: plan,
+            }
+          }
+        );
+
+        console.log("Premium updated:", updateResult);
+
+        res.send({
+          success: true,
+          message: "Payment success and premium activated."
+        });
+
+      } catch (error) {
+        console.error("Payment success error:", error.message);
+        res.status(500).json({ error: error.message });
+      }
+    });
 
     // Send a ping to confirm a successful connection
     await client.db('admin').command({ ping: 1 })
