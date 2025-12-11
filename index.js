@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express')
 const cors = require('cors')
-const { MongoClient, ServerApiVersion } = require('mongodb')
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb')
 const stripe = require('stripe')(process.env.STRIPE_SECRET);
 const admin = require('firebase-admin')
 const port = process.env.PORT || 3000
@@ -118,6 +118,15 @@ async function run() {
         res.status(500).json({ error: error.message });
       }
     });
+
+    // get specific lesson by id
+    app.get('/lessonDetails/:id', async(req, res) =>{
+      const id = req.params.id;
+      console.log(id);
+      const query = {_id: new ObjectId(id)};
+      const result = await lessonsCollection.findOne(query);
+      res.send(result);
+    })
 
     // get my lessons
     // app.get('/my-lessons', async (req, res) => {
