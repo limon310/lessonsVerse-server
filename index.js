@@ -98,8 +98,8 @@ async function run() {
     app.post('/lessons', async (req, res) => {
       const lessonsData = req.body;
       // console.log("lessons data in back end", lessonsData);
-      lessonsData.createdAt = new Date().toLocaleString();
-      lessonsData.lastUpdated = new Date().toLocaleString();
+      lessonsData.createdAt = new Date().toLocaleDateString();
+      lessonsData.lastUpdated = new Date().toLocaleDateString();
       const result = await lessonsCollection.insertOne(lessonsData);
       res.send(result);
 
@@ -128,9 +128,9 @@ async function run() {
       res.send(result);
     })
 
-    // get my lessons
-    app.get('/my-lessons', async (req, res) => {
-      const email = req.query.email;
+    // get my lessons by email
+    app.get('/my-lessons/:email', async (req, res) => {
+      const email = req.params.email;
 
       const query = {};
 
@@ -142,10 +142,33 @@ async function run() {
       res.send(result);
     });
 
-    // delete my lessons
-    app.delete('/lesson/:id', async(req, res) =>{
+    // update lessons
+    app.patch('/my-lessons/:id', async (req, res) => {
       const id = req.params.id;
-      const query = {_id: new ObjectId(id)};
+      const data = req.body;
+
+      const query = { _id: new ObjectId(id) };
+
+      const updateData = {
+        $set: {
+          title: data.title,
+          access_level: data.access_level,
+          createdAt: data.createdAt,
+          authorInfo: {
+            name: data.authorInfo.name,
+            email: data.authorInfo.email,
+          }
+        }
+      };
+      const result = await lessonsCollection.updateOne(query, updateData);
+      res.send(result);
+    });
+
+
+    // delete my lessons
+    app.delete('/lesson/:id', async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
       const result = await lessonsCollection.deleteOne(query);
       res.send(result);
     })
