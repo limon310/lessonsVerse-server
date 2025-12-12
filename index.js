@@ -164,6 +164,35 @@ async function run() {
       res.send(result);
     });
 
+    // update visibility
+    app.patch('/my-lessons/:id/visibility', async(req, res) =>{
+      const id = req.params.id;
+      const {visibility} = req.body;
+      const query = {_id: new ObjectId(id)};
+      const updateDoc = {
+        $set: {
+          privacy: visibility,
+          lastUpdated: new Date().toLocaleDateString()
+        }
+      }
+      const result = await lessonsCollection.updateMany(query, updateDoc);
+      res.send(result);
+    })
+
+    // update access level
+    app.patch('/my-lessons/:id/access', async(req, res) =>{
+      const id = req.params.id;
+      const {access_level} = req.body;
+      const query = {_id: new ObjectId(id)};
+      const updateDoc = {
+        $set: {
+          access_level: access_level,
+          lastUpdated: new Date().toLocaleDateString()
+        }
+      }
+      const result = await lessonsCollection.updateMany(query, updateDoc);
+      res.send(result);
+    })
 
     // delete my lessons
     app.delete('/lesson/:id', async (req, res) => {
