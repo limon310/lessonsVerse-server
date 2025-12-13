@@ -93,6 +93,14 @@ async function run() {
       res.send(result);
     })
 
+    // get user by email and role
+    app.get('/users/:email/role', async(req, res) =>{
+      const email = req.params.email;
+      const query = {email};
+      const result = await userCollection.findOne(query);
+      res.send({role: result?.role || 'user'});
+    })
+
     // LESSONS RELETADE APIS HERE
     // create lessons
     app.post('/lessons', async (req, res) => {
