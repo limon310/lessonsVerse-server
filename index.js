@@ -385,7 +385,7 @@ async function run() {
     // save favorite lessons
     app.post('/favorite-lessons/:lessonId', async (req, res) => {
       const { lessonId } = req.params;
-      const { email } = req.body;
+      const { email, title } = req.body;
 
       const query = {
         lessonId: new ObjectId(lessonId),
@@ -402,6 +402,7 @@ async function run() {
       await favoriteLessonCollection.insertOne({
         lessonId: new ObjectId(lessonId),
         email,
+        title,
         createdAt: new Date()
       });
 
@@ -509,6 +510,25 @@ async function run() {
       });
 
       res.send({ success: true });
+    });
+
+    // get my favorite lessons
+    app.get('/my-favorite-lessons/:email', async (req, res) => {
+      const email = req.params.email;
+      const query = { email };
+      const result = await favoriteLessonCollection.find(query).toArray();
+      res.send(result);
+    })
+
+    // remove from favorite
+    app.delete('/remove-favorite/:lessonId', async (req, res) => {
+      const { lessonId } = req.params
+
+      const query = {
+        lessonId: new ObjectId(lessonId)
+      };
+      const result = await favoriteLessonCollection.deleteOne(query)
+      res.send(result);
     });
 
 
