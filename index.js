@@ -59,7 +59,21 @@ async function run() {
     const userCollection = db.collection("users");
     const lessonsCollection = db.collection("lessons");
     const paymentCollection = db.collection("payment");
-    // const myLessonsCollection = db.collection("myLessons");
+    const favoriteLessonCollection = db.collection("favoriteLessons");
+    const likeLessonCollection = db.collection("likeLessons");
+    const reportLessonCollection = db.collection("reportLessons");
+    const commentCollection = db.collection("comments");
+
+    // create index 
+    favoriteLessonCollection.createIndex(
+      { lessonId: 1, email: 1 },
+      { unique: true }
+    );
+
+    likeLessonCollection.createIndex(
+      { lessonId: 1, email: 1 },
+      { unique: true }
+    );
 
     // save user in db
     app.post('/users', async (req, res) => {
@@ -67,7 +81,7 @@ async function run() {
       user.isPremium = false;
       user.createdAt = new Date().toISOString();
       user.lastLogin = new Date().toISOString();
-      user.role = "customer";
+      user.role = "user";
       user.isFeatured = false;
       const query = {
         email: user.email
@@ -366,11 +380,145 @@ async function run() {
       }
     });
 
+    // FAVORITE LESSON RELETADE APIS HERE
+
+    // save favorite lessons
+    app.post('/favorite-lessons/:lessonId', async (req, res) => {
+      const { lessonId } = req.params;
+      const { email } = req.body;
+
+      const query = {
+        lessonId: new ObjectId(lessonId),
+        email
+      };
+
+      const existing = await favoriteLessonCollection.findOne(query);
+
+      if (existing) {
+        await favoriteLessonCollection.deleteOne(query);
+        return res.send({ action: "removed" });
+      }
+
+      await favoriteLessonCollection.insertOne({
+        lessonId: new ObjectId(lessonId),
+        email,
+        createdAt: new Date()
+      });
+
+      res.send({ action: "added" });
+    });
+
+    // check if user favorite a lesson
+    app.get('/favorite-lessons/check', async (req, res) => {
+      const { lessonId, email } = req.query;
+
+      const exists = await favoriteLessonCollection.findOne({
+        lessonId: new ObjectId(lessonId),
+        email
+      });
+
+      res.send({ isFavorited: !!exists });
+    });
+
+    // favorite lessons count
+    app.get('/favorite-lessons/count/:lessonId', async (req, res) => {
+      const { lessonId } = req.params;
+
+      const count = await favoriteLessonCollection.countDocuments({
+        lessonId: new ObjectId(lessonId)
+      });
+
+      res.send({ count });
+    });
+
+    // like toogle
+    app.post('/like-lessons/:lessonId', async (req, res) => {
+      const { lessonId } = req.params;
+      const { email } = req.body;
+
+      const query = {
+        lessonId: new ObjectId(lessonId),
+        email
+      };
+
+      const existing = await likeLessonCollection.findOne(query);
+
+      if (existing) {
+        await likeLessonCollection.deleteOne(query);
+        return res.send({ action: "removed" });
+      }
+
+      await likeLessonCollection.insertOne({
+        lessonId: new ObjectId(lessonId),
+        email,
+        createdAt: new Date()
+      });
+
+      res.send({ action: "added" });
+    });
+
+    // check if user liked a lessons
+    app.get('/like-lessons/check', async (req, res) => {
+      const { lessonId, email } = req.query;
+
+      const exists = await likeLessonCollection.findOne({
+        lessonId: new ObjectId(lessonId),
+        email
+      });
+
+      res.send({ isLiked: !!exists });
+    });
+
+    // like count
+    app.get('/like-lessons/count/:lessonId', async (req, res) => {
+      const { lessonId } = req.params;
+
+      const count = await likeLessonCollection.countDocuments({
+        lessonId: new ObjectId(lessonId)
+      });
+
+      res.send({ count });
+    });
+
+    // post comment
+    app.post('/lesson-comment', async (req, res) => {
+      const userInfo = req.body;
+      const result = await commentCollection.insertOne(userInfo);
+      res.send(result);
+    })
+
+    // get user comment
+    app.get('/getUser-comment', async (req, res) => {
+      const result = await commentCollection.find().limit(3).toArray();
+      res.send(result);
+    })
+
+    // report lessons
+    app.post('/report-lesson/:lessonId', async (req, res) => {
+      const { lessonId } = req.params;
+      const { email, reason, displayName, userId } = req.body;
+
+      await reportLessonCollection.insertOne({
+        lessonId: new ObjectId(lessonId),
+        email,
+        reason,
+        displayName,
+        userId,
+        timestamp: new Date(),
+        status: "pending"
+      });
+
+      res.send({ success: true });
+    });
+
+
+
     // Send a ping to confirm a successful connection
     await client.db('admin').command({ ping: 1 })
     console.log(
       'Pinged your deployment. You successfully connected to MongoDB!'
     )
+
   } finally {
     // Ensures that the client will close when you finish/error
   }
