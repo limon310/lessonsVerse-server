@@ -199,6 +199,21 @@ async function run() {
       }
     });
 
+    // get featured lesson
+    app.get('/featured-lesson', async(req, res) =>{
+      try{
+        const featuredLesson = lessonsCollection.find({
+          isFeatured: true,
+          privacy: "Public"
+        }).sort({createdAt: -1}).limit(6);
+        const result = await featuredLesson.toArray();
+        res.send(result);
+      }
+      catch(error){
+        res.status(500).json({error: error.message});
+      }
+    })
+
 
     // get specific lesson by id
     app.get('/lessonDetails/:id', async (req, res) => {
@@ -507,7 +522,7 @@ async function run() {
           lastUpdated: new Date().toLocaleDateString()
         }
       }
-      await lessonsCollection.updateOne({_id: new ObjectId(lessonId)}, updateDoc);
+      await lessonsCollection.updateOne({ _id: new ObjectId(lessonId) }, updateDoc);
 
       await reportLessonCollection.insertOne({
         lessonId: new ObjectId(lessonId),
@@ -544,16 +559,35 @@ async function run() {
 
     // admin only access
     // get all lessons createdt by users
-    app.get('/all-public-lessons', async (req, res) => {
+    app.get('/admin/lessons', async (req, res) => {
       try {
-        const lessons = lessonsCollection.find();
-        const result = await lessons.toArray();
+        const { category, privacy, flagged } = req.query;
 
-        res.send(result);
+        const query = {};
+
+        // Filter by category
+        if (category) {
+          query.category = category;
+        }
+
+        // Filter by visibility
+        if (privacy) {
+          query.privacy = privacy;
+        }
+
+        // Filter by flagged lessons
+        if (flagged === "true") {
+          query.isFlagged = true;
+        }
+
+        const lessons = await lessonsCollection.find(query).toArray();
+        res.send(lessons);
+
       } catch (error) {
-        res.status(500).json({ error: error.message });
+        res.status(500).send({ error: error.message });
       }
     });
+
 
     // GET PUBLIC, PRIVATE, AND FLAGGED COUNT
     app.get('/admin/lessons/stats', async (req, res) => {
@@ -592,9 +626,9 @@ async function run() {
     })
 
     // update report collection status
-    app.patch('/update-status/:id', async(req, res) =>{
+    app.patch('/update-status/:id', async (req, res) => {
       const id = req.params.id;
-      const query = {lessonId: new ObjectId(id)};
+      const query = { lessonId: new ObjectId(id), statu };
       const updateStatus = {
         $set: {
           status: "reviewed"
