@@ -82,7 +82,6 @@ async function run() {
       user.createdAt = new Date().toISOString();
       user.lastLogin = new Date().toISOString();
       user.role = "user";
-      user.isFeatured = false;
       const query = {
         email: user.email
       }
@@ -106,7 +105,6 @@ async function run() {
       const matchStage = searchText
         ? { displayName: { $regex: searchText, $options: "i" } }
         : {};
-
       const users = await userCollection.aggregate([
         { $match: matchStage },
 
@@ -180,6 +178,8 @@ async function run() {
       // console.log("lessons data in back end", lessonsData);
       lessonsData.createdAt = new Date().toLocaleDateString();
       lessonsData.lastUpdated = new Date().toLocaleDateString();
+      lessonsData.isFeatured = false;
+      lessonsData.isFlagged = false;
       const result = await lessonsCollection.insertOne(lessonsData);
       res.send(result);
 
@@ -198,6 +198,7 @@ async function run() {
         res.status(500).json({ error: error.message });
       }
     });
+
 
     // get specific lesson by id
     app.get('/lessonDetails/:id', async (req, res) => {
@@ -499,6 +500,15 @@ async function run() {
       const { lessonId } = req.params;
       const { email, reason, displayName, userId } = req.body;
 
+      // update isFlagged true
+      const updateDoc = {
+        $set: {
+          isFlagged: true,
+          lastUpdated: new Date().toLocaleDateString()
+        }
+      }
+      await lessonsCollection.updateOne({_id: new ObjectId(lessonId)}, updateDoc);
+
       await reportLessonCollection.insertOne({
         lessonId: new ObjectId(lessonId),
         email,
@@ -506,7 +516,8 @@ async function run() {
         displayName,
         userId,
         timestamp: new Date(),
-        status: "pending"
+        status: "pending",
+        isFlagged: true,
       });
 
       res.send({ success: true });
@@ -531,7 +542,67 @@ async function run() {
       res.send(result);
     });
 
+    // admin only access
+    // get all lessons createdt by users
+    app.get('/all-public-lessons', async (req, res) => {
+      try {
+        const lessons = lessonsCollection.find();
+        const result = await lessons.toArray();
 
+        res.send(result);
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // GET PUBLIC, PRIVATE, AND FLAGGED COUNT
+    app.get('/admin/lessons/stats', async (req, res) => {
+
+      const publicLessons = await lessonsCollection.countDocuments({
+        privacy: "Public"
+      });
+
+      const privateLessons = await lessonsCollection.countDocuments({
+        privacy: "Private"
+      });
+
+      const flaggedLessons = await lessonsCollection.countDocuments({
+        isFlagged: true
+      });
+
+      res.send({
+        publicLessons,
+        privateLessons,
+        flaggedLessons
+      });
+    });
+
+    // update isFeatured on admin routed
+    app.patch('/updateLesson/:id/featured', async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          isFeatured: true,
+          lastUpdated: new Date().toLocaleDateString()
+        }
+      }
+      const result = await lessonsCollection.updateOne(query, updateDoc);
+      res.send(result);
+    })
+
+    // update report collection status
+    app.patch('/update-status/:id', async(req, res) =>{
+      const id = req.params.id;
+      const query = {lessonId: new ObjectId(id)};
+      const updateStatus = {
+        $set: {
+          status: "reviewed"
+        }
+      }
+      const result = await reportLessonCollection.updateOne(query, updateStatus);
+      res.send(result);
+    })
 
     // Send a ping to confirm a successful connection
     await client.db('admin').command({ ping: 1 })
