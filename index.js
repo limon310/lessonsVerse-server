@@ -200,20 +200,19 @@ async function run() {
     });
 
     // get featured lesson
-    app.get('/featured-lesson', async(req, res) =>{
-      try{
+    app.get('/featured-lesson', async (req, res) => {
+      try {
         const featuredLesson = lessonsCollection.find({
           isFeatured: true,
           privacy: "Public"
-        }).sort({createdAt: -1}).limit(6);
+        }).sort({ createdAt: -1 }).limit(6);
         const result = await featuredLesson.toArray();
         res.send(result);
       }
-      catch(error){
-        res.status(500).json({error: error.message});
+      catch (error) {
+        res.status(500).json({ error: error.message });
       }
     })
-
 
     // get specific lesson by id
     app.get('/lessonDetails/:id', async (req, res) => {
@@ -237,6 +236,67 @@ async function run() {
       const result = await lessonsCollection.find(query).toArray();
       res.send(result);
     });
+
+    // top contributor in the week
+    app.get('/top-contributors-week', async (req, res) => {
+      try {
+
+        // Today string like "12/15/2025"
+        const today = new Date();
+        const startOfWeek = new Date();
+        startOfWeek.setDate(today.getDate() - today.getDay());
+
+        const formatDate = (date) =>
+          `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
+
+        const startDate = formatDate(startOfWeek);
+        const endDate = formatDate(today);
+
+        const pipeline = [
+          {
+            $match: {
+              createdAt: {
+                $gte: startDate,
+                $lte: endDate
+              }
+            }
+          },
+          {
+            $group: {
+              _id: "$creatorId",
+              totalLessons: { $sum: 1 },
+              name: { $first: "$authorInfo.name" },
+              image: { $first: "$authorInfo.image" },
+              email: { $first: "$authorInfo.email" }
+            }
+          },
+          {
+            $sort: { totalLessons: -1 }
+          },
+          {
+            $limit: 3
+          },
+          {
+            $project: {
+              _id: 0,
+              creatorId: "$_id",
+              totalLessons: 1,
+              name: 1,
+              image: 1,
+              email: 1
+            }
+          }
+        ];
+
+        const result = await lessonsCollection.aggregate(pipeline).toArray();
+        res.send(result);
+
+      } catch (error) {
+        res.status(500).send({ error: error.message });
+      }
+    });
+
+
 
     // update lessons
     app.patch('/my-lessons/:id', async (req, res) => {
