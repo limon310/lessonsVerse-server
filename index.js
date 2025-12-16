@@ -296,6 +296,55 @@ async function run() {
       }
     });
 
+    // get most save || favorite lessons
+    app.get('/most-saved-lessons', async (req, res) => {
+      try {
+        const pipeline = [
+          {
+            $group: {
+              _id: "$lessonId",
+              totalSaves: { $sum: 1 }
+            }
+          },
+          {
+            $sort: { totalSaves: -1 }
+          },
+          {
+            $limit: 5
+          },
+          {
+            $lookup: {
+              from: "lessons",
+              localField: "_id",
+              foreignField: "_id",
+              as: "lessonInfo"
+            }
+          },
+          {
+            $unwind: "$lessonInfo"
+          },
+          {
+            $project: {
+              _id: 0,
+              lessonId: "$_id",
+              totalSaves: 1,
+              title: "$lessonInfo.title",
+              description: "$lessonInfo.description",
+              category: "$lessonInfo.category",
+              privacy: "$lessonInfo.privacy",
+              emotional_ton: "$lessonInfo.emotional_ton",
+              access_level: "$lessonInfo.access_level",
+              creatorId: "$lessonInfo.creatorId"
+            }
+          }
+        ];
+
+        const result = await favoriteLessonCollection.aggregate(pipeline).toArray();
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ error: error.message });
+      }
+    });
 
 
     // update lessons
