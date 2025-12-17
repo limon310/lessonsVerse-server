@@ -822,7 +822,6 @@ async function run() {
         }
       }
       await lessonsCollection.updateOne({ _id: new ObjectId(lessonId) }, updateDoc);
-
       await reportLessonCollection.insertOne({
         lessonId: new ObjectId(lessonId),
         email,
@@ -831,11 +830,73 @@ async function run() {
         userId,
         timestamp: new Date(),
         status: "pending",
-        isFlagged: true,
+        isFlagged: true
       });
 
       res.send({ success: true });
     });
+
+    app.get('/flagged-lessons', async (req, res) => {
+      try {
+        const result = await reportLessonCollection.aggregate([
+          // Group by lessonId
+          {
+            $group: {
+              _id: "$lessonId",  
+              reportCount: { $sum: 1 },
+              reports: {
+                $push: {
+                  reason: "$reason",
+                  email: "$email",
+                  displayName: "$displayName",
+                  reportedAt: "$timestamp"
+                }
+              }
+            }
+          },
+          
+          {
+            $lookup: {
+              from: "lessons",
+              localField: "_id",
+              foreignField: "_id",
+              as: "lessonDetails"
+            }
+          },
+          { $unwind: "$lessonDetails" },
+          {
+            $project: {
+              lessonId: "$_id",
+              lessonTitle: "$lessonDetails.title",
+              reportCount: 1,
+              reports: 1
+            }
+          },
+          { $sort: { reportCount: -1 } }
+        ]).toArray();
+
+        res.send(result);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ error: "Failed to fetch flagged lessons" });
+      }
+    });
+
+    // delete flagged lessons
+    app.delete('/delete-flagged-lesson/:id', async(req, res) =>{
+      try{
+      const lessonId = req.params.id;
+      const query = {lessonId: new ObjectId(lessonId)}
+      const result = reportLessonCollection.deleteOne(query);
+      res.send(result);
+      }
+      catch(err){
+        console.error(err);
+         res.status(500).send({ error: "Failed to delete flagged lessons" });
+      }
+      
+    })
+
 
     // get my favorite lessons
     app.get('/my-favorite-lessons/:email', async (req, res) => {
