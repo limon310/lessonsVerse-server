@@ -141,6 +141,47 @@ async function run() {
     });
 
 
+    // for user dashboard home 
+    // GET total created lessons for logged-in user
+    app.get('/users/lessons/count/:email', async (req, res) => {
+      try {
+        const email = req.params.email;
+
+        const totalCreatedLessons = await lessonsCollection.countDocuments({
+          'authorInfo.email': email
+        });
+
+        res.send({
+          totalCreatedLessons
+        });
+      } catch (error) {
+        res.status(500).json({
+          message: 'Failed to fetch lesson count',
+          error: error.message
+        });
+      }
+    });
+
+    // GET total save lessons for logged-in user
+    app.get('/users/saveLesson/count/:email', async (req, res) => {
+      try {
+        const userEmail = req.params.email;
+
+        const totalSaveLessons = await favoriteLessonCollection.countDocuments({
+          email: userEmail
+        });
+
+        res.send({
+          totalSaveLessons
+        });
+      } catch (error) {
+        res.status(500).json({
+          message: 'Failed to fetch lesson count',
+          error: error.message
+        });
+      }
+    });
+
     // update user role
     app.patch('/users/:id/role', async (req, res) => {
       const id = req.params.id;
@@ -345,6 +386,155 @@ async function run() {
         res.status(500).send({ error: error.message });
       }
     });
+
+    // get user created recent lessons for dashboard home
+    app.get('/recent/lessons/:email', async (req, res) => {
+      const email = req.params.email;
+      const query = {};
+      if (email) {
+        query["authorInfo.email"] = email;
+      }
+      const result = await lessonsCollection.find(query).sort({ createdAt: -1 }).toArray();
+      res.send(result);
+    })
+
+    // for user dashboard home analytic
+    // data analytics for created lessona in a month
+    app.get('/users/lessons/analytics/monthly/:email', async (req, res) => {
+      try {
+        const email = req.params.email;
+
+        //  Start of current month
+        const startOfMonth = new Date();
+        startOfMonth.setDate(1);
+        startOfMonth.setHours(0, 0, 0, 0);
+
+        // Aggregate lessons per day
+        const rawData = await lessonsCollection.aggregate([
+          {
+            $match: {
+              'authorInfo.email': email
+            }
+          },
+          {
+            $addFields: {
+              createdDate: {
+                $cond: [
+                  { $eq: [{ $type: "$createdAt" }, "string"] },
+                  { $toDate: "$createdAt" },
+                  "$createdAt"
+                ]
+              }
+            }
+          },
+          {
+            $match: {
+              createdDate: { $gte: startOfMonth }
+            }
+          },
+          {
+            $group: {
+              _id: {
+                date: {
+                  $dateToString: {
+                    format: "%Y-%m-%d",
+                    date: "$createdDate"
+                  }
+                }
+              },
+              total: { $sum: 1 }
+            }
+          },
+          {
+            $sort: { "_id.date": 1 }
+          }
+        ]).toArray();
+
+        // Convert aggregation to map
+        const dataMap = {};
+        rawData.forEach(item => {
+          dataMap[item._id.date] = item.total;
+        });
+
+        // Normalize full month (day-wise)
+        const result = [];
+        const today = new Date();
+        const totalDays = today.getDate();
+
+        for (let day = 1; day <= totalDays; day++) {
+          const date = new Date(startOfMonth);
+          date.setDate(day);
+
+          const key = date.toISOString().split("T")[0];
+
+          result.push({
+            date: key,
+            day: day,
+            totalLessons: dataMap[key] || 0
+          });
+        }
+
+        res.send(result);
+
+      } catch (error) {
+        res.status(500).json({
+          message: 'Failed to load monthly lesson analytics',
+          error: error.message
+        });
+      }
+    });
+
+    // total lesson created in a month
+    app.get('/users/lessons/analytics/monthly-total/:email', async (req, res) => {
+      try {
+        const email = req.params.email;
+
+        const startOfMonth = new Date();
+        startOfMonth.setDate(1);
+        startOfMonth.setHours(0, 0, 0, 0);
+
+        const result = await lessonsCollection.aggregate([
+          {
+            $match: {
+              'authorInfo.email': email
+            }
+          },
+          {
+            $addFields: {
+              createdDate: {
+                $cond: [
+                  { $eq: [{ $type: "$createdAt" }, "string"] },
+                  { $toDate: "$createdAt" },
+                  "$createdAt"
+                ]
+              }
+            }
+          },
+          {
+            $match: {
+              createdDate: { $gte: startOfMonth }
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              totalLessons: { $sum: 1 }
+            }
+          }
+        ]).toArray();
+
+        res.send({
+          totalLessons: result[0]?.totalLessons || 0
+        });
+
+      } catch (error) {
+        res.status(500).json({
+          message: 'Failed to get monthly total lessons',
+          error: error.message
+        });
+      }
+    });
+
 
 
     // update lessons
