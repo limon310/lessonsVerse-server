@@ -274,7 +274,7 @@ async function run() {
         query["authorInfo.email"] = email;
       }
 
-      const result = await lessonsCollection.find(query).toArray();
+      const result = await lessonsCollection.find(query).sort({ createdAt: -1 }).toArray();
       res.send(result);
     });
 
@@ -842,7 +842,7 @@ async function run() {
           // Group by lessonId
           {
             $group: {
-              _id: "$lessonId",  
+              _id: "$lessonId",
               reportCount: { $sum: 1 },
               reports: {
                 $push: {
@@ -854,7 +854,7 @@ async function run() {
               }
             }
           },
-          
+
           {
             $lookup: {
               from: "lessons",
@@ -883,18 +883,18 @@ async function run() {
     });
 
     // delete flagged lessons
-    app.delete('/delete-flagged-lesson/:id', async(req, res) =>{
-      try{
-      const lessonId = req.params.id;
-      const query = {lessonId: new ObjectId(lessonId)}
-      const result = reportLessonCollection.deleteOne(query);
-      res.send(result);
+    app.delete('/delete-flagged-lesson/:id', async (req, res) => {
+      try {
+        const lessonId = req.params.id;
+        const query = { lessonId: new ObjectId(lessonId) }
+        const result = reportLessonCollection.deleteOne(query);
+        res.send(result);
       }
-      catch(err){
+      catch (err) {
         console.error(err);
-         res.status(500).send({ error: "Failed to delete flagged lessons" });
+        res.status(500).send({ error: "Failed to delete flagged lessons" });
       }
-      
+
     })
 
 
@@ -997,6 +997,89 @@ async function run() {
       const result = await reportLessonCollection.updateOne(query, updateStatus);
       res.send(result);
     })
+
+    // ADMIN DASHBOARD ANALYTICS APIS HERE
+    // get total user, public lessons, flagged lessons
+    app.get("/admin/stats/users-lessons-flagged", async (req, res) => {
+
+      const totalUsers = await userCollection.countDocuments();
+
+      const totalPublicLessons = await lessonsCollection.countDocuments({ privacy: "Public" });
+
+      const totalFlaggedLessons = await reportLessonCollection.countDocuments();
+
+
+      res.send({
+        totalUsers,
+        totalPublicLessons,
+        totalFlaggedLessons
+      });
+    });
+
+    // todays lesson count
+    app.get("/admin/lessons/today/count", async (req, res) => {
+      try {
+        // 1️⃣ Generate today's string in MM/DD/YYYY
+        const today = new Date();
+        const mm = String(today.getMonth() + 1).padStart(2, "0");
+        const dd = String(today.getDate()).padStart(2, "0");
+        const yyyy = today.getFullYear();
+        const todayStr = `${mm}/${dd}/${yyyy}`;
+
+        // 2️⃣ Count lessons created today
+        const todayLessonCount = await lessonsCollection.countDocuments({
+          createdAt: todayStr
+        });
+
+        // 3️⃣ Return only the number
+        res.json({ todayLessons: todayLessonCount });
+      } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: "Server error" });
+      }
+    });
+
+
+    app.get("/admin/growth", async (req, res) => {
+      try {
+        // Lessons growth
+        const lessonGrowth = await lessonsCollection.aggregate([
+          {
+            $group: {
+              _id: "$createdAt",
+              count: { $sum: 1 }
+            }
+          },
+          { $sort: { _id: 1 } }
+        ]).toArray();
+
+        // Users growth
+        const userGrowth = await userCollection.aggregate([
+          {
+            $group: {
+              _id: "$createdAt",
+              count: { $sum: 1 }
+            }
+          },
+          { $sort: { _id: 1 } }
+        ]).toArray();
+
+        res.json({
+          lessonGrowth: lessonGrowth.map(i => ({
+            date: i._id,
+            count: i.count
+          })),
+          userGrowth: userGrowth.map(i => ({
+            date: i._id,
+            count: i.count
+          }))
+        });
+
+      } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: "Server error" });
+      }
+    });
 
     // Send a ping to confirm a successful connection
     await client.db('admin').command({ ping: 1 })
