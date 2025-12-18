@@ -35,6 +35,7 @@ const verifyJWT = async (req, res, next) => {
   if (!token) return res.status(401).send({ message: 'Unauthorized Access!' })
   try {
     const decoded = await admin.auth().verifyIdToken(token)
+    req.user = decoded
     req.tokenEmail = decoded.email
     console.log(decoded)
     next()
@@ -63,6 +64,18 @@ async function run() {
     const likeLessonCollection = db.collection("likeLessons");
     const reportLessonCollection = db.collection("reportLessons");
     const commentCollection = db.collection("comments");
+
+    // middleware to check user type
+    const user = async (req, res, next) => {
+      const email = req.decoded_email;
+      const query = { email };
+      const user = await userCollection.findOne(query);
+      if (user.isPremium !== true || user.role !== "admin") {
+        return res.status(403).send({ message: "forbiden access" })
+      }
+      next();
+    }
+
 
     // create index 
     favoriteLessonCollection.createIndex(
@@ -227,14 +240,65 @@ async function run() {
     })
 
     // get lessons data
-    app.get('/public-lessons', async (req, res) => {
+    app.get('/public-lessons', verifyJWT, async (req, res) => {
       try {
-        const lessons = lessonsCollection.find(
-          { privacy: "Public" }
-        );
-        const result = await lessons.toArray();
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 6;
+        const skip = (page - 1) * limit;
 
-        res.send(result);
+        const { search, category, emotion, sort } = req.query;
+
+        let filter = {};
+
+        // Access control
+        if (!req.user) {
+          filter.privacy = "Public";
+        } else {
+          const user = await userCollection.findOne({ email: req.tokenEmail });
+          if (!user || (!user.isPremium && user.role !== 'admin')) {
+            filter.privacy = "Public";
+          }
+        }
+
+        if (search) {
+          filter.title = { $regex: search, $options: 'i' };
+        }
+
+        // Category filter
+        if (category) {
+          filter.category = category;
+        }
+
+        // Emotional tone filter
+        if (emotion) {
+          filter.emotional_ton = emotion;
+        }
+
+        // Sorting
+        let sortOption = { createdAt: -1 }; // default newest
+        if (sort === "oldest") {
+          sortOption = { createdAt: 1 };
+        }
+
+        // Total count
+        const total = await lessonsCollection.countDocuments(filter);
+
+        // Fetch lessons
+        const lessons = await lessonsCollection
+          .find(filter)
+          .sort(sortOption)
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        res.json({
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+          lessons
+        });
+
       } catch (error) {
         res.status(500).json({ error: error.message });
       }
