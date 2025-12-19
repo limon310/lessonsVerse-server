@@ -342,6 +342,44 @@ async function run() {
       res.send(result);
     });
 
+    // get my public lessons by email for profile section
+    app.get('/my-Publiclessons/:email', async (req, res) => {
+      const email = req.params.email;
+
+      const query = {
+        privacy: "Public",
+        "authorInfo.email": email
+      };
+
+      const result = await lessonsCollection.find(query).sort({ createdAt: -1 }).toArray();
+      res.send(result);
+    });
+
+    // total lesson created and total save count for showing profile section
+    app.get('/user/lesson-stats/:email', async (req, res) => {
+      try {
+        const email = req.params.email;
+
+        // total lessons created by user
+        const createdCount = await lessonsCollection.countDocuments({
+          "authorInfo.email": email
+        });
+
+        // total lessons saved by user
+        const savedCount = await favoriteLessonCollection.countDocuments({
+          email: email
+        });
+
+        res.send({
+          createdLessons: createdCount,
+          savedLessons: savedCount
+        });
+
+      } catch (error) {
+        res.status(500).send({ message: error.message });
+      }
+    });
+
     // top contributor in the week
     app.get('/top-contributors-week', async (req, res) => {
       try {
@@ -598,8 +636,6 @@ async function run() {
         });
       }
     });
-
-
 
     // update lessons
     app.patch('/my-lessons/:id', async (req, res) => {
