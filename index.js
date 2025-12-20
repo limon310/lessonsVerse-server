@@ -15,12 +15,22 @@ admin.initializeApp({
 
 const app = express()
 // middleware
+// app.use(
+//   cors({
+//     origin: [
+//       'http://localhost:5173',
+//       'http://localhost:5174',
+//       'https://b12-m11-session.web.app',
+//     ],
+//     credentials: true,
+//     optionSuccessStatus: 200,
+//   })
+// )
 app.use(
   cors({
-    origin: [
-      'http://localhost:5173',
-      'http://localhost:5174',
-      'https://b12-m11-session.web.app',
+    origin: [process.env.CLIENT_DOMAIN,
+            "http://localhost:5173"
+
     ],
     credentials: true,
     optionSuccessStatus: 200,
@@ -153,48 +163,6 @@ async function run() {
       res.send(users);
     });
 
-
-    // for user dashboard home 
-    // GET total created lessons for logged-in user
-    app.get('/users/lessons/count/:email', async (req, res) => {
-      try {
-        const email = req.params.email;
-
-        const totalCreatedLessons = await lessonsCollection.countDocuments({
-          'authorInfo.email': email
-        });
-
-        res.send({
-          totalCreatedLessons
-        });
-      } catch (error) {
-        res.status(500).json({
-          message: 'Failed to fetch lesson count',
-          error: error.message
-        });
-      }
-    });
-
-    // GET total save lessons for logged-in user
-    app.get('/users/saveLesson/count/:email', async (req, res) => {
-      try {
-        const userEmail = req.params.email;
-
-        const totalSaveLessons = await favoriteLessonCollection.countDocuments({
-          email: userEmail
-        });
-
-        res.send({
-          totalSaveLessons
-        });
-      } catch (error) {
-        res.status(500).json({
-          message: 'Failed to fetch lesson count',
-          error: error.message
-        });
-      }
-    });
-
     // update user role
     app.patch('/users/:id/role', async (req, res) => {
       const id = req.params.id;
@@ -322,7 +290,7 @@ async function run() {
     // get specific lesson by id
     app.get('/lessonDetails/:id', async (req, res) => {
       const id = req.params.id;
-      console.log(id);
+      // console.log(id);
       const query = { _id: new ObjectId(id) };
       const result = await lessonsCollection.findOne(query);
       res.send(result);
@@ -355,28 +323,73 @@ async function run() {
       res.send(result);
     });
 
-    // total lesson created and total save count for showing profile section
-    app.get('/user/lesson-stats/:email', async (req, res) => {
+    // semilar lessons by category
+    app.get('/similar-lessons', async (req, res) => {
+      const { category, tone, id } = req.query;
+
+      let query = {
+        privacy: "Public",
+        _id: { $ne: new ObjectId(id) }
+      };
+
+      if (category && tone) {
+        query.$or = [
+          { category },
+          { emotional_ton: tone }
+        ];
+      } else if (category) {
+        query.category = category;
+      } else if (tone) {
+        query.emotional_ton = tone;
+      }
+
+      const similarLessons = await lessonsCollection
+        .find(query)
+        .sort({ createdAt: -1 })
+        .limit(6)
+        .toArray();
+
+      res.send(similarLessons);
+    });
+
+    // for user dashboard home 
+    // GET total created lessons for logged-in user
+    app.get('/users/lessons/count/:email', async (req, res) => {
       try {
         const email = req.params.email;
 
-        // total lessons created by user
-        const createdCount = await lessonsCollection.countDocuments({
-          "authorInfo.email": email
-        });
-
-        // total lessons saved by user
-        const savedCount = await favoriteLessonCollection.countDocuments({
-          email: email
+        const totalCreatedLessons = await lessonsCollection.countDocuments({
+          'authorInfo.email': email
         });
 
         res.send({
-          createdLessons: createdCount,
-          savedLessons: savedCount
+          totalCreatedLessons
+        });
+      } catch (error) {
+        res.status(500).json({
+          message: 'Failed to fetch lesson count',
+          error: error.message
+        });
+      }
+    });
+
+    // GET total save lessons for logged-in user
+    app.get('/users/saveLesson/count/:email', async (req, res) => {
+      try {
+        const userEmail = req.params.email;
+
+        const totalSaveLessons = await favoriteLessonCollection.countDocuments({
+          email: userEmail
         });
 
+        res.send({
+          totalSaveLessons
+        });
       } catch (error) {
-        res.status(500).send({ message: error.message });
+        res.status(500).json({
+          message: 'Failed to fetch lesson count',
+          error: error.message
+        });
       }
     });
 
@@ -1183,8 +1196,7 @@ async function run() {
 
     // Send a ping to confirm a successful connection
     await client.db('admin').command({ ping: 1 })
-    console.log(
-      'Pinged your deployment. You successfully connected to MongoDB!'
+    console.log('Pinged your deployment. You successfully connected to MongoDB!'
     )
 
   } finally {

@@ -1,3 +1,4 @@
 node_modules
 .env
 lessonsverse-firebase-adminsdk-.json
+.vercel
