@@ -29,7 +29,7 @@ const app = express()
 app.use(
   cors({
     origin: [process.env.CLIENT_DOMAIN,
-            "http://localhost:5173"
+      "http://localhost:5173"
 
     ],
     credentials: true,
@@ -75,6 +75,7 @@ async function run() {
     const reportLessonCollection = db.collection("reportLessons");
     const commentCollection = db.collection("comments");
 
+    // MIDDLE WARE FOR VERIFY USER ACCESS CONTROL
     // middleware to check user type
     const user = async (req, res, next) => {
       const email = req.decoded_email;
@@ -82,6 +83,16 @@ async function run() {
       const user = await userCollection.findOne(query);
       if (user.isPremium !== true || user.role !== "admin") {
         return res.status(403).send({ message: "forbiden access" })
+      }
+      next();
+    }
+
+    // VERIFY ADMIN
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.tokenEmail;
+      const user = await userCollection.findOne({ email });
+      if (!user || user.role !== "admin") {
+        return res.status(403).send({ message: 'Admin only Actions!' })
       }
       next();
     }
@@ -102,8 +113,8 @@ async function run() {
     app.post('/users', async (req, res) => {
       const user = req.body;
       user.isPremium = false;
-      user.createdAt = new Date().toISOString();
-      user.lastLogin = new Date().toISOString();
+      user.createdAt = new Date();
+      user.lastLogin = new Date();
       user.role = "user";
       const query = {
         email: user.email
@@ -122,12 +133,17 @@ async function run() {
     })
 
     // get user for showing admin dashboard manage users section
-    app.get('/users', async (req, res) => {
+    app.get('/users', verifyJWT, verifyAdmin, async (req, res) => {
       const searchText = req.query.searchText || "";
+      const adminEmail = req.tokenEmail;
 
-      const matchStage = searchText
-        ? { displayName: { $regex: searchText, $options: "i" } }
-        : {};
+      const matchStage = {
+        email: { $ne: adminEmail }
+      }
+
+      if (searchText) {
+        matchStage.displayName = { $regex: searchText, $options: "i" };
+      }
       const users = await userCollection.aggregate([
         { $match: matchStage },
 
@@ -164,7 +180,7 @@ async function run() {
     });
 
     // update user role
-    app.patch('/users/:id/role', async (req, res) => {
+    app.patch('/users/:id/role', verifyJWT, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const roleInfo = req.body;
       const query = { _id: new ObjectId(id) };
@@ -178,7 +194,7 @@ async function run() {
     })
 
     // get user by email
-    app.get('/users/:email', async (req, res) => {
+    app.get('/users/:email', verifyJWT, async (req, res) => {
       const email = req.params.email;
       const query = { email };
       const result = await userCollection.findOne(query);
@@ -186,20 +202,28 @@ async function run() {
     })
 
     // get user by email and role
-    app.get('/users/:email/role', async (req, res) => {
+    app.get('/users/:email/role', verifyJWT, async (req, res) => {
       const email = req.params.email;
       const query = { email };
       const result = await userCollection.findOne(query);
       res.send({ role: result?.role || 'user' });
     })
 
+    // delete user
+    app.delete('/user/:id', async(req, res) =>{
+      const id = req.params.id;
+      const query = {_id: new ObjectId(id)};
+      const result = await userCollection.deleteOne(query);
+      res.send(result);
+    })
+
     // LESSONS RELETADE APIS HERE
     // create lessons
-    app.post('/lessons', async (req, res) => {
+    app.post('/lessons', verifyJWT, async (req, res) => {
       const lessonsData = req.body;
       // console.log("lessons data in back end", lessonsData);
-      lessonsData.createdAt = new Date().toLocaleDateString();
-      lessonsData.lastUpdated = new Date().toLocaleDateString();
+      lessonsData.createdAt = new Date();
+      lessonsData.lastUpdated = new Date();
       lessonsData.isFeatured = false;
       lessonsData.isFlagged = false;
       const result = await lessonsCollection.insertOne(lessonsData);
@@ -208,7 +232,7 @@ async function run() {
     })
 
     // get lessons data
-    app.get('/public-lessons', verifyJWT, async (req, res) => {
+    app.get('/public-lessons', async (req, res) => {
       try {
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 6;
@@ -272,13 +296,25 @@ async function run() {
       }
     });
 
+    // author lessons
+    app.get('/author-lessons', async (req, res) => {
+      const { creatorId } = req.query;
+
+      try {
+        const lessons = await lessonsCollection.find({ creatorId }).toArray();
+        res.json(lessons);
+      } catch (error) {
+        res.status(500).json({ message: 'Server error' });
+      }
+    })
+
     // get featured lesson
     app.get('/featured-lesson', async (req, res) => {
       try {
         const featuredLesson = lessonsCollection.find({
           isFeatured: true,
           privacy: "Public"
-        }).sort({ createdAt: -1 }).limit(6);
+        }).sort({ createdAt: -1 }).limit(8);
         const result = await featuredLesson.toArray();
         res.send(result);
       }
@@ -297,8 +333,8 @@ async function run() {
     })
 
     // get my lessons by email
-    app.get('/my-lessons/:email', async (req, res) => {
-      const email = req.params.email;
+    app.get('/my-lessons', verifyJWT, async (req, res) => {
+      const email = req.tokenEmail;
 
       const query = {};
 
@@ -311,15 +347,21 @@ async function run() {
     });
 
     // get my public lessons by email for profile section
-    app.get('/my-Publiclessons/:email', async (req, res) => {
-      const email = req.params.email;
-
+    app.get('/my-Publiclessons', verifyJWT, async (req, res) => {
+      // const email = req.params.email;
+      const email = req.tokenEmail;
+      const { sort } = req.query;
       const query = {
         privacy: "Public",
         "authorInfo.email": email
       };
+      // Sorting
+      let sortOption = { createdAt: -1 }; // default newest
+      if (sort === "oldest") {
+        sortOption = { createdAt: 1 };
+      }
 
-      const result = await lessonsCollection.find(query).sort({ createdAt: -1 }).toArray();
+      const result = await lessonsCollection.find(query).sort(sortOption).toArray();
       res.send(result);
     });
 
@@ -374,9 +416,9 @@ async function run() {
     });
 
     // GET total save lessons for logged-in user
-    app.get('/users/saveLesson/count/:email', async (req, res) => {
+    app.get('/users/saveLesson/count', verifyJWT, async (req, res) => {
       try {
-        const userEmail = req.params.email;
+        const userEmail = req.tokenEmail;
 
         const totalSaveLessons = await favoriteLessonCollection.countDocuments({
           email: userEmail
@@ -393,27 +435,25 @@ async function run() {
       }
     });
 
-    // top contributor in the week
+    // top contributor of the week
     app.get('/top-contributors-week', async (req, res) => {
       try {
 
         // Today string like "12/15/2025"
-        const today = new Date();
-        const startOfWeek = new Date();
+        const today = new Date(); // current date & time
+        const startOfWeek = new Date(today);
         startOfWeek.setDate(today.getDate() - today.getDay());
+        startOfWeek.setHours(0, 0, 0, 0); // start of day
 
-        const formatDate = (date) =>
-          `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
-
-        const startDate = formatDate(startOfWeek);
-        const endDate = formatDate(today);
+        const endOfWeek = new Date(today);
+        endOfWeek.setHours(23, 59, 59, 999); // end of today
 
         const pipeline = [
           {
             $match: {
               createdAt: {
-                $gte: startDate,
-                $lte: endDate
+                $gte: startOfWeek,
+                $lte: endOfWeek
               }
             }
           },
@@ -503,8 +543,8 @@ async function run() {
     });
 
     // get user created recent lessons for dashboard home
-    app.get('/recent/lessons/:email', async (req, res) => {
-      const email = req.params.email;
+    app.get('/recent/lessons', verifyJWT, async (req, res) => {
+      const email = req.tokenEmail;
       const query = {};
       if (email) {
         query["authorInfo.email"] = email;
@@ -514,12 +554,12 @@ async function run() {
     })
 
     // for user dashboard home analytic
-    // data analytics for created lessona in a month
-    app.get('/users/lessons/analytics/monthly/:email', async (req, res) => {
+    // data analytics for created lessona in a day
+    app.get('/users/lessons/analytics/monthly', verifyJWT, async (req, res) => {
       try {
-        const email = req.params.email;
+        const email = req.tokenEmail;
 
-        //  Start of current month
+        // Start of current month
         const startOfMonth = new Date();
         startOfMonth.setDate(1);
         startOfMonth.setHours(0, 0, 0, 0);
@@ -528,23 +568,8 @@ async function run() {
         const rawData = await lessonsCollection.aggregate([
           {
             $match: {
-              'authorInfo.email': email
-            }
-          },
-          {
-            $addFields: {
-              createdDate: {
-                $cond: [
-                  { $eq: [{ $type: "$createdAt" }, "string"] },
-                  { $toDate: "$createdAt" },
-                  "$createdAt"
-                ]
-              }
-            }
-          },
-          {
-            $match: {
-              createdDate: { $gte: startOfMonth }
+              'authorInfo.email': email,
+              createdAt: { $gte: startOfMonth }
             }
           },
           {
@@ -553,7 +578,7 @@ async function run() {
                 date: {
                   $dateToString: {
                     format: "%Y-%m-%d",
-                    date: "$createdDate"
+                    date: "$createdAt"
                   }
                 }
               },
@@ -580,11 +605,11 @@ async function run() {
           const date = new Date(startOfMonth);
           date.setDate(day);
 
-          const key = date.toISOString().split("T")[0];
+          const key = date.toLocaleDateString("en-CA");
 
           result.push({
             date: key,
-            day: day,
+            day,
             totalLessons: dataMap[key] || 0
           });
         }
@@ -600,9 +625,9 @@ async function run() {
     });
 
     // total lesson created in a month
-    app.get('/users/lessons/analytics/monthly-total/:email', async (req, res) => {
+    app.get('/users/lessons/analytics/monthly-total', verifyJWT, async (req, res) => {
       try {
-        const email = req.params.email;
+        const email = req.tokenEmail;
 
         const startOfMonth = new Date();
         startOfMonth.setDate(1);
@@ -611,23 +636,8 @@ async function run() {
         const result = await lessonsCollection.aggregate([
           {
             $match: {
-              'authorInfo.email': email
-            }
-          },
-          {
-            $addFields: {
-              createdDate: {
-                $cond: [
-                  { $eq: [{ $type: "$createdAt" }, "string"] },
-                  { $toDate: "$createdAt" },
-                  "$createdAt"
-                ]
-              }
-            }
-          },
-          {
-            $match: {
-              createdDate: { $gte: startOfMonth }
+              'authorInfo.email': email,
+              createdAt: { $gte: startOfMonth }
             }
           },
           {
@@ -651,7 +661,7 @@ async function run() {
     });
 
     // update lessons
-    app.patch('/my-lessons/:id', async (req, res) => {
+    app.patch('/my-lessons/:id', verifyJWT, async (req, res) => {
       const id = req.params.id;
       const data = req.body;
 
@@ -661,11 +671,15 @@ async function run() {
         $set: {
           title: data.title,
           access_level: data.access_level,
-          createdAt: data.createdAt,
-          authorInfo: {
-            name: data.authorInfo.name,
-            email: data.authorInfo.email,
-          }
+          category: data.category,
+          privacy: data.privacy,
+          description: data.description,
+          emotional_ton: data.emotional_ton,
+          lastUpdated: new Date()
+          // authorInfo: {
+          //   name: data.authorInfo.name,
+          //   email: data.authorInfo.email,
+          // }
         }
       };
       const result = await lessonsCollection.updateOne(query, updateData);
@@ -673,14 +687,14 @@ async function run() {
     });
 
     // update visibility
-    app.patch('/my-lessons/:id/visibility', async (req, res) => {
+    app.patch('/my-lessons/:id/visibility', verifyJWT, async (req, res) => {
       const id = req.params.id;
       const { visibility } = req.body;
       const query = { _id: new ObjectId(id) };
       const updateDoc = {
         $set: {
           privacy: visibility,
-          lastUpdated: new Date().toLocaleDateString()
+          lastUpdated: new Date()
         }
       }
       const result = await lessonsCollection.updateMany(query, updateDoc);
@@ -688,14 +702,14 @@ async function run() {
     })
 
     // update access level
-    app.patch('/my-lessons/:id/access', async (req, res) => {
+    app.patch('/my-lessons/:id/access', verifyJWT, async (req, res) => {
       const id = req.params.id;
       const { access_level } = req.body;
       const query = { _id: new ObjectId(id) };
       const updateDoc = {
         $set: {
           access_level: access_level,
-          lastUpdated: new Date().toLocaleDateString()
+          lastUpdated: new Date()
         }
       }
       const result = await lessonsCollection.updateMany(query, updateDoc);
@@ -703,7 +717,7 @@ async function run() {
     })
 
     // delete my lessons
-    app.delete('/lesson/:id', async (req, res) => {
+    app.delete('/lesson/:id', verifyJWT, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await lessonsCollection.deleteOne(query);
@@ -719,7 +733,7 @@ async function run() {
           line_items: [
             {
               price_data: {
-                currency: "usd",
+                currency: "bdt",
                 unit_amount: Number(price) * 100,
                 product_data: {
                   name: paymentInfo.package_name || "Premium Membership"
@@ -736,7 +750,7 @@ async function run() {
             customer_id: paymentInfo?.customer_id
           },
           success_url: `${process.env.CLIENT_DOMAIN}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${process.env.CLIENT_DOMAIN}/upgrade-premium`,
+          cancel_url: `${process.env.CLIENT_DOMAIN}/payment-cancel`,
         });
 
         res.send({ url: session.url });
@@ -811,9 +825,9 @@ async function run() {
     // FAVORITE LESSON RELETADE APIS HERE
 
     // save favorite lessons
-    app.post('/favorite-lessons/:lessonId', async (req, res) => {
+    app.post('/favorite-lessons/:lessonId', verifyJWT, async (req, res) => {
       const { lessonId } = req.params;
-      const { email, title } = req.body;
+      const { email, title, category, emotional_ton } = req.body;
 
       const query = {
         lessonId: new ObjectId(lessonId),
@@ -831,6 +845,8 @@ async function run() {
         lessonId: new ObjectId(lessonId),
         email,
         title,
+        category,
+        emotional_ton,
         createdAt: new Date()
       });
 
@@ -861,7 +877,7 @@ async function run() {
     });
 
     // like toogle
-    app.post('/like-lessons/:lessonId', async (req, res) => {
+    app.post('/like-lessons/:lessonId', verifyJWT, async (req, res) => {
       const { lessonId } = req.params;
       const { email } = req.body;
 
@@ -910,7 +926,7 @@ async function run() {
     });
 
     // post comment
-    app.post('/lesson-comment', async (req, res) => {
+    app.post('/lesson-comment', verifyJWT, async (req, res) => {
       const userInfo = req.body;
       const result = await commentCollection.insertOne(userInfo);
       res.send(result);
@@ -923,7 +939,7 @@ async function run() {
     })
 
     // report lessons
-    app.post('/report-lesson/:lessonId', async (req, res) => {
+    app.post('/report-lesson/:lessonId', verifyJWT, async (req, res) => {
       const { lessonId } = req.params;
       const { email, reason, displayName, userId } = req.body;
 
@@ -931,7 +947,7 @@ async function run() {
       const updateDoc = {
         $set: {
           isFlagged: true,
-          lastUpdated: new Date().toLocaleDateString()
+          lastUpdated: new Date()
         }
       }
       await lessonsCollection.updateOne({ _id: new ObjectId(lessonId) }, updateDoc);
@@ -996,7 +1012,7 @@ async function run() {
     });
 
     // delete flagged lessons
-    app.delete('/delete-flagged-lesson/:id', async (req, res) => {
+    app.delete('/delete-flagged-lesson/:id', verifyJWT, verifyAdmin, async (req, res) => {
       try {
         const lessonId = req.params.id;
         const query = { lessonId: new ObjectId(lessonId) }
@@ -1010,17 +1026,25 @@ async function run() {
 
     })
 
-
     // get my favorite lessons
-    app.get('/my-favorite-lessons/:email', async (req, res) => {
-      const email = req.params.email;
+    app.get('/my-favorite-lessons', verifyJWT, async (req, res) => {
+      const { category, emotional_ton } = req.query;
+      // const email = req.params.email;
+      const email = req.tokenEmail;
+
       const query = { email };
+      if (category) {
+        query.category = category;
+      }
+      if (emotional_ton) {
+        query.emotional_ton = emotional_ton;
+      }
       const result = await favoriteLessonCollection.find(query).toArray();
       res.send(result);
     })
 
     // remove from favorite
-    app.delete('/remove-favorite/:lessonId', async (req, res) => {
+    app.delete('/remove-favorite/:lessonId', verifyJWT, async (req, res) => {
       const { lessonId } = req.params
 
       const query = {
@@ -1031,10 +1055,9 @@ async function run() {
     });
 
     // admin only access
-    // get all lessons createdt by users
-    app.get('/admin/lessons', async (req, res) => {
+    app.get('/admin/lessons-filter', verifyJWT, verifyAdmin, async (req, res) => {
       try {
-        const { category, privacy, flagged } = req.query;
+        const { category, visibility, flagged } = req.query;
 
         const query = {};
 
@@ -1044,13 +1067,16 @@ async function run() {
         }
 
         // Filter by visibility
-        if (privacy) {
-          query.privacy = privacy;
+        if (visibility) {
+          query.privacy = visibility;
+        }
+        // Filter by flagged
+        if (flagged === 'true') {
+          query.isFlagged = true;
         }
 
-        // Filter by flagged lessons
-        if (flagged === "true") {
-          query.isFlagged = true;
+        if (flagged === 'false') {
+          query.isFlagged = false;
         }
 
         const lessons = await lessonsCollection.find(query).toArray();
@@ -1061,9 +1087,8 @@ async function run() {
       }
     });
 
-
     // GET PUBLIC, PRIVATE, AND FLAGGED COUNT
-    app.get('/admin/lessons/stats', async (req, res) => {
+    app.get('/admin/lessons/stats', verifyJWT, verifyAdmin, async (req, res) => {
 
       const publicLessons = await lessonsCollection.countDocuments({
         privacy: "Public"
@@ -1085,13 +1110,13 @@ async function run() {
     });
 
     // update isFeatured on admin routed
-    app.patch('/updateLesson/:id/featured', async (req, res) => {
+    app.patch('/updateLesson/:id/featured', verifyJWT, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const updateDoc = {
         $set: {
           isFeatured: true,
-          lastUpdated: new Date().toLocaleDateString()
+          lastUpdated: new Date()
         }
       }
       const result = await lessonsCollection.updateOne(query, updateDoc);
@@ -1099,7 +1124,7 @@ async function run() {
     })
 
     // update report collection status
-    app.patch('/update-status/:id', async (req, res) => {
+    app.patch('/update-status/:id', verifyJWT, verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const query = { lessonId: new ObjectId(id), statu };
       const updateStatus = {
@@ -1113,7 +1138,7 @@ async function run() {
 
     // ADMIN DASHBOARD ANALYTICS APIS HERE
     // get total user, public lessons, flagged lessons
-    app.get("/admin/stats/users-lessons-flagged", async (req, res) => {
+    app.get("/admin/stats/users-lessons-flagged", verifyJWT, verifyAdmin, async (req, res) => {
 
       const totalUsers = await userCollection.countDocuments();
 
@@ -1130,21 +1155,16 @@ async function run() {
     });
 
     // todays lesson count
-    app.get("/admin/lessons/today/count", async (req, res) => {
+    app.get("/admin/lessons/today/count", verifyJWT, verifyAdmin, async (req, res) => {
       try {
-        // 1️⃣ Generate today's string in MM/DD/YYYY
         const today = new Date();
-        const mm = String(today.getMonth() + 1).padStart(2, "0");
-        const dd = String(today.getDate()).padStart(2, "0");
-        const yyyy = today.getFullYear();
-        const todayStr = `${mm}/${dd}/${yyyy}`;
+        const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const end = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
 
-        // 2️⃣ Count lessons created today
         const todayLessonCount = await lessonsCollection.countDocuments({
-          createdAt: todayStr
+          createdAt: { $gte: start, $lt: end }
         });
 
-        // 3️⃣ Return only the number
         res.json({ todayLessons: todayLessonCount });
       } catch (err) {
         console.error(err);
@@ -1152,29 +1172,33 @@ async function run() {
       }
     });
 
-
-    app.get("/admin/growth", async (req, res) => {
+    // user and lesson growth
+    app.get("/admin/growth-chart", verifyJWT, verifyAdmin, async (req, res) => {
       try {
         // Lessons growth
         const lessonGrowth = await lessonsCollection.aggregate([
           {
             $group: {
-              _id: "$createdAt",
+              _id: {
+                $dateToString: { format: "%Y-%m-%d", date: "$createdAt" }
+              },
               count: { $sum: 1 }
             }
           },
-          { $sort: { _id: 1 } }
+          { $sort: { "_id": 1 } }
         ]).toArray();
 
         // Users growth
         const userGrowth = await userCollection.aggregate([
           {
             $group: {
-              _id: "$createdAt",
+              _id: {
+                $dateToString: { format: "%Y-%m-%d", date: "$createdAt" }
+              },
               count: { $sum: 1 }
             }
           },
-          { $sort: { _id: 1 } }
+          { $sort: { "_id": 1 } }
         ]).toArray();
 
         res.json({
