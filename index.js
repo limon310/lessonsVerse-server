@@ -14,24 +14,10 @@ admin.initializeApp({
 })
 
 const app = express()
-// middleware
-// app.use(
-//   cors({
-//     origin: [
-//       'http://localhost:5173',
-//       'http://localhost:5174',
-//       'https://b12-m11-session.web.app',
-//     ],
-//     credentials: true,
-//     optionSuccessStatus: 200,
-//   })
-// )
+middleware
 app.use(
   cors({
-    origin: [process.env.CLIENT_DOMAIN,
-      "http://localhost:5173"
-
-    ],
+    origin: [process.env.CLIENT_DOMAIN],
     credentials: true,
     optionSuccessStatus: 200,
   })
@@ -210,9 +196,9 @@ async function run() {
     })
 
     // delete user
-    app.delete('/user/:id', async(req, res) =>{
+    app.delete('/user/:id', async (req, res) => {
       const id = req.params.id;
-      const query = {_id: new ObjectId(id)};
+      const query = { _id: new ObjectId(id) };
       const result = await userCollection.deleteOne(query);
       res.send(result);
     })
@@ -436,27 +422,66 @@ async function run() {
     });
 
     // top contributor of the week
+    // app.get('/top-contributors-week', async (req, res) => {
+    //   try {
+
+    //     // Today string like "12/15/2025"
+    //     const today = new Date(); // current date & time
+    //     const startOfWeek = new Date(today);
+    //     startOfWeek.setDate(today.getDate() - today.getDay());
+    //     startOfWeek.setHours(0, 0, 0, 0); // start of day
+
+    //     const endOfWeek = new Date(today);
+    //     endOfWeek.setHours(23, 59, 59, 999); // end of today
+
+    //     const pipeline = [
+    //       {
+    //         $match: {
+    //           createdAt: {
+    //             $gte: startOfWeek,
+    //             $lte: endOfWeek
+    //           }
+    //         }
+    //       },
+    //       {
+    //         $group: {
+    //           _id: "$creatorId",
+    //           totalLessons: { $sum: 1 },
+    //           name: { $first: "$authorInfo.name" },
+    //           image: { $first: "$authorInfo.image" },
+    //           email: { $first: "$authorInfo.email" }
+    //         }
+    //       },
+    //       {
+    //         $sort: { totalLessons: -1 }
+    //       },
+    //       {
+    //         $limit: 3
+    //       },
+    //       {
+    //         $project: {
+    //           _id: 0,
+    //           creatorId: "$_id",
+    //           totalLessons: 1,
+    //           name: 1,
+    //           image: 1,
+    //           email: 1
+    //         }
+    //       }
+    //     ];
+
+    //     const result = await lessonsCollection.aggregate(pipeline).toArray();
+    //     res.send(result);
+
+    //   } catch (error) {
+    //     res.status(500).send({ error: error.message });
+    //   }
+    // });
+
+    // top contributor of all time
     app.get('/top-contributors-week', async (req, res) => {
       try {
-
-        // Today string like "12/15/2025"
-        const today = new Date(); // current date & time
-        const startOfWeek = new Date(today);
-        startOfWeek.setDate(today.getDate() - today.getDay());
-        startOfWeek.setHours(0, 0, 0, 0); // start of day
-
-        const endOfWeek = new Date(today);
-        endOfWeek.setHours(23, 59, 59, 999); // end of today
-
         const pipeline = [
-          {
-            $match: {
-              createdAt: {
-                $gte: startOfWeek,
-                $lte: endOfWeek
-              }
-            }
-          },
           {
             $group: {
               _id: "$creatorId",
@@ -1230,7 +1255,7 @@ async function run() {
 run().catch(console.dir)
 
 app.get('/', (req, res) => {
-  res.send('Hello from Server..')
+  res.send('Hello from LessonVerse Server..')
 })
 
 app.listen(port, () => {
